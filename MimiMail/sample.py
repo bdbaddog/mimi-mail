@@ -1,8 +1,13 @@
-from __future__ import print_function
+"""
+From:
+https://developers.google.com/gmail/api/quickstart/python
+
+"""
 import os.path
 import pyttsx3
-
-engine=pyttsx3.init()
+import base64
+import codecs
+import re
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -12,6 +17,63 @@ from googleapiclient.errors import HttpError
 
 # If modifying these scopes, delete the file token.json.
 SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
+
+engine = pyttsx3.init()
+# This is the speaking rate defaults to 200 words per minute
+engine.setProperty('rate', 130)
+
+URL_PATTERN = r'[A-Za-z0-9]+://[A-Za-z0-9%-_]+(/[A-Za-z0-9%-_])*(#|\\?)[A-Za-z0-9%-_&=]*'
+
+headers = ['Subject', 'From', 'Date', 'body',
+           'parts']
+
+
+# from: https://github.com/jmgomezsoriano/mysmallutils
+def replace_urls(text: str, replace: str, end_with: str = '') -> str:
+    """ Replace all the URLs with path by a text.
+    :param text: The text to replace.
+    :param replace: The text to replace with.
+    :param end_with: A regular expression which the URL has to finish with.
+         By default, replace all the URLs.
+    :return: The replaced text.
+    """
+    matches = list(re.finditer(URL_PATTERN + end_with, text))
+    matches.reverse()
+    for match in matches:
+        start, end = match.span()[0], match.span()[1]
+        text = text[:start] + replace + text[end:]
+    return text
+
+
+def getEmail(service):
+    results = service.users().messages().list(userId='me').execute()
+    for r in results.get('messages'):
+        leer = service.users().messages().get(userId='me', id=r['id']).execute()
+        payload = leer.get("payload")
+        header = payload.get("headers")
+        for x in header:
+            if x['name'] in headers:
+                sub = x['value']
+                print("%-20s :%s" % (x['name'], x['value']))
+            else:
+                # print("Header:%-10s : %s"%(x['name'],x['value']))
+                pass
+        # print(leer['snippet'])  #body
+
+        parts = payload.get('parts')
+        for p in parts:
+            body = p['body']
+            data = body['data']
+            # print(data)
+            # data = data.replace('-', '+')
+            b64str = codecs.encode(data)
+            body_text = base64.urlsafe_b64decode(b64str).decode('utf-8')
+            print("%-4s [%-12s]: %s " % (p['partId'], p['mimeType'], body_text))
+            if p['mimeType'] == 'text/plain':
+                body_text = replace_urls(body_text, "LINK")
+                engine.say(body_text)
+                engine.runAndWait()
+        break
 
 
 def main():
@@ -39,17 +101,19 @@ def main():
     try:
         # Call the Gmail API
         service = build('gmail', 'v1', credentials=creds)
-        results = service.users().labels().list(userId='me').execute()
-        labels = results.get('labels', [])
+        # results = service.users().labels().list(userId='me').execute()
+        # labels = results.get('labels', [])
+        #
+        # if not labels:
+        #     print('No labels found.')
+        #     return
+        # print('Labels:')
+        # for label in labels:
+        #     print(label['name'])
+        #     engine.say(label['name'])
+        # engine.runAndWait()
 
-        if not labels:
-            print('No labels found.')
-            return
-        print('Labels:')
-        for label in labels:
-            print(label['name'])
-            engine.say(label['name'])
-        engine.runAndWait()
+        getEmail(service)
 
     except HttpError as error:
         # TODO(developer) - Handle errors from gmail API.
