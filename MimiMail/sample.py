@@ -4,16 +4,19 @@ https://developers.google.com/gmail/api/quickstart/python
 
 """
 import os.path
-import pyttsx3
 import base64
 import codecs
 import re
+
+import pyttsx3
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+
+from Message import Message
 
 # If modifying these scopes, delete the file token.json.
 SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
@@ -43,6 +46,40 @@ def replace_urls(text: str, replace: str, end_with: str = '') -> str:
         start, end = match.span()[0], match.span()[1]
         text = text[:start] + replace + text[end:]
     return text
+
+
+def getUnreadEmails(service):
+    messages = []
+    results = service.users().messages().list(userId='me', labelIds=['UNREAD', 'INBOX']).execute()
+    for r in results.get('messages'):
+        message = service.users().messages().get(userId='me', id=r['id']).execute()
+        payload = message.get('payload')
+        headers = payload.get('headers')
+
+        sender = None
+        sent_date = None
+        subject = None
+        body = None
+        for x in headers:
+            name = x['name']
+            value = x['value']
+            if name == 'From':
+                sender = value
+            if name == 'Date':
+                sent_date = value
+            if name == 'Subject':
+                subject = value
+        body = payload.get('body')
+
+        mess = Message(sender, sent_date, subject, body)
+
+
+        messages.append(mess)
+
+    for m in messages:
+        print(f"From:{m.sender} Date:{m.sent_date} Subject:{m.subject}")
+
+    return messages
 
 
 def getEmail(service):
@@ -113,7 +150,10 @@ def main():
         #     engine.say(label['name'])
         # engine.runAndWait()
 
-        getEmail(service)
+        # getEmail(service)
+        unread_messages = getUnreadEmails(service)
+        for m in unread_messages:
+            print(m)
 
     except HttpError as error:
         # TODO(developer) - Handle errors from gmail API.
