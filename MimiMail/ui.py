@@ -2,8 +2,6 @@ import curses
 import pyttsx3
 import textwrap
 import threading
-import time
-from datetime import datetime, timedelta
 from gmail_interface import replace_urls
 
 class UI:
@@ -59,26 +57,7 @@ class UI:
             max_messages = height - 4
 
             if k == 0 and self.speak_on_scroll and len(messages) > 0:
-                sender_text = messages[self.cursor_y].sender
-                if '<' in sender_text:
-                    sender_name = sender_text.split('<')[0].strip(' "')
-                else:
-                    sender_name = sender_text
-                
-                now = datetime.now()
-                message_date = datetime.fromtimestamp(time.mktime(messages[self.cursor_y].sent_date))
-                
-                if message_date.date() == now.date():
-                    date_str = "Today"
-                elif now.year == message_date.year:
-                    if now.isocalendar()[1] == message_date.isocalendar()[1] and now.weekday() >= message_date.weekday(): # current week
-                        date_str = time.strftime("%A", messages[self.cursor_y].sent_date) # Full weekday name for speaking
-                    else: # current year, but not current week
-                        date_str = time.strftime("%B %d", messages[self.cursor_y].sent_date)
-                else: # not current year
-                    date_str = time.strftime("%B %d, %Y", messages[self.cursor_y].sent_date)
-
-                thread = threading.Thread(target=self._speak_in_thread, args=(f"From: {sender_name}, Subject: {messages[self.cursor_y].subject}. Message received on {date_str}",))
+                thread = threading.Thread(target=self._speak_in_thread, args=(messages[self.cursor_y].get_speech_summary(),))
                 thread.daemon = True
                 thread.start()
 
@@ -127,52 +106,14 @@ class UI:
                 self.cursor_y = self.cursor_y + 1
                 if self.speak_on_scroll:
                     self.engine.stop()
-                    sender_text = messages[self.cursor_y].sender
-                    if '<' in sender_text:
-                        sender_name = sender_text.split('<')[0].strip(' "')
-                    else:
-                        sender_name = sender_text
-
-                    now = datetime.now()
-                    message_date = datetime.fromtimestamp(time.mktime(messages[self.cursor_y].sent_date))
-
-                    if message_date.date() == now.date():
-                        date_str = "Today"
-                    elif now.year == message_date.year:
-                        if now.isocalendar()[1] == message_date.isocalendar()[1] and now.weekday() >= message_date.weekday(): # current week
-                            date_str = time.strftime("%A", messages[self.cursor_y].sent_date) # Full weekday name for speaking
-                        else: # current year, but not current week
-                            date_str = time.strftime("%B %d", messages[self.cursor_y].sent_date)
-                    else: # not current year
-                        date_str = time.strftime("%B %d, %Y", messages[self.cursor_y].sent_date)
-
-                    thread = threading.Thread(target=self._speak_in_thread, args=(f"From: {sender_name}, Subject: {messages[self.cursor_y].subject}. Message received on {date_str}",))
+                    thread = threading.Thread(target=self._speak_in_thread, args=(messages[self.cursor_y].get_speech_summary(),))
                     thread.daemon = True
                     thread.start()
             elif k == curses.KEY_UP:
                 self.cursor_y = self.cursor_y - 1
                 if self.speak_on_scroll:
                     self.engine.stop()
-                    sender_text = messages[self.cursor_y].sender
-                    if '<' in sender_text:
-                        sender_name = sender_text.split('<')[0].strip(' "')
-                    else:
-                        sender_name = sender_text
-                    
-                    now = datetime.now()
-                    message_date = datetime.fromtimestamp(time.mktime(messages[self.cursor_y].sent_date))
-
-                    if message_date.date() == now.date():
-                        date_str = "Today"
-                    elif now.year == message_date.year:
-                        if now.isocalendar()[1] == message_date.isocalendar()[1] and now.weekday() >= message_date.weekday(): # current week
-                            date_str = time.strftime("%A", messages[self.cursor_y].sent_date) # Full weekday name for speaking
-                        else: # current year, but not current week
-                            date_str = time.strftime("%B %d", messages[self.cursor_y].sent_date)
-                    else: # not current year
-                        date_str = time.strftime("%B %d, %Y", messages[self.cursor_y].sent_date)
-
-                    thread = threading.Thread(target=self._speak_in_thread, args=(f"From: {sender_name}, Subject: {messages[self.cursor_y].subject}. Message received on {date_str}",))
+                    thread = threading.Thread(target=self._speak_in_thread, args=(messages[self.cursor_y].get_speech_summary(),))
                     thread.daemon = True
                     thread.start()
 
@@ -254,7 +195,7 @@ class UI:
             # Declaration of strings
             title = f"Subject: {message.subject}"[:width-1]
             sender = f"From: {message.sender}"[:width-1]
-            sent_date = f"Date: {time.strftime('%B %d, %Y %I:%M %p', message.sent_date)}"[:width-1]
+            sent_date = f"Date: {message.get_date_full()}"[:width-1]
 
             statusbarstr = f"Press 'q' to return | 's' to speak/stop | 'u' to toggle URLs | +/- to change speed (current: {self.speech_rate})"[:width-1]
 
@@ -279,7 +220,7 @@ class UI:
             self.stdscr.attroff(curses.A_BOLD)
             
             # TODO: handle mimetypes other than text/plain
-            body_text = message.body.get('data', '')
+            body_text = message.get_body_text()
             if not self.show_urls:
                 body_text = replace_urls(body_text, "[URL]")
 
@@ -308,7 +249,7 @@ class UI:
             elif k == ord('s'):
                 if not self.speaking:
                     self.speaking = True
-                    text_to_speak = message.body.get('data', '')
+                    text_to_speak = message.get_body_text()
                     if not self.show_urls:
                         text_to_speak = replace_urls(text_to_speak, "")
 
