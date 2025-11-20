@@ -3,6 +3,7 @@ import pyttsx3
 import textwrap
 import threading
 import time
+from datetime import datetime, timedelta
 from sample import replace_urls
 
 class UI:
@@ -44,7 +45,21 @@ class UI:
                     sender_name = sender_text.split('<')[0].strip(' "')
                 else:
                     sender_name = sender_text
-                thread = threading.Thread(target=self._speak_in_thread, args=(f"From: {sender_name}, Subject: {messages[self.cursor_y].subject}",))
+                
+                now = datetime.now()
+                message_date = datetime.fromtimestamp(time.mktime(messages[self.cursor_y].sent_date))
+                
+                if message_date.date() == now.date():
+                    date_str = "Today"
+                elif now.year == message_date.year:
+                    if now.isocalendar()[1] == message_date.isocalendar()[1] and now.weekday() >= message_date.weekday(): # current week
+                        date_str = time.strftime("%A", messages[self.cursor_y].sent_date) # Full weekday name for speaking
+                    else: # current year, but not current week
+                        date_str = time.strftime("%B %d", messages[self.cursor_y].sent_date)
+                else: # not current year
+                    date_str = time.strftime("%B %d, %Y", messages[self.cursor_y].sent_date)
+
+                thread = threading.Thread(target=self._speak_in_thread, args=(f"From: {sender_name}, Subject: {messages[self.cursor_y].subject}. Message received on {date_str}",))
                 thread.daemon = True
                 thread.start()
 
@@ -98,7 +113,21 @@ class UI:
                         sender_name = sender_text.split('<')[0].strip(' "')
                     else:
                         sender_name = sender_text
-                    thread = threading.Thread(target=self._speak_in_thread, args=(f"From: {sender_name}, Subject: {messages[self.cursor_y].subject}",))
+
+                    now = datetime.now()
+                    message_date = datetime.fromtimestamp(time.mktime(messages[self.cursor_y].sent_date))
+
+                    if message_date.date() == now.date():
+                        date_str = "Today"
+                    elif now.year == message_date.year:
+                        if now.isocalendar()[1] == message_date.isocalendar()[1] and now.weekday() >= message_date.weekday(): # current week
+                            date_str = time.strftime("%A", messages[self.cursor_y].sent_date) # Full weekday name for speaking
+                        else: # current year, but not current week
+                            date_str = time.strftime("%B %d", messages[self.cursor_y].sent_date)
+                    else: # not current year
+                        date_str = time.strftime("%B %d, %Y", messages[self.cursor_y].sent_date)
+
+                    thread = threading.Thread(target=self._speak_in_thread, args=(f"From: {sender_name}, Subject: {messages[self.cursor_y].subject}. Message received on {date_str}",))
                     thread.daemon = True
                     thread.start()
             elif k == curses.KEY_UP:
@@ -110,7 +139,21 @@ class UI:
                         sender_name = sender_text.split('<')[0].strip(' "')
                     else:
                         sender_name = sender_text
-                    thread = threading.Thread(target=self._speak_in_thread, args=(f"From: {sender_name}, Subject: {messages[self.cursor_y].subject}",))
+                    
+                    now = datetime.now()
+                    message_date = datetime.fromtimestamp(time.mktime(messages[self.cursor_y].sent_date))
+
+                    if message_date.date() == now.date():
+                        date_str = "Today"
+                    elif now.year == message_date.year:
+                        if now.isocalendar()[1] == message_date.isocalendar()[1] and now.weekday() >= message_date.weekday(): # current week
+                            date_str = time.strftime("%A", messages[self.cursor_y].sent_date) # Full weekday name for speaking
+                        else: # current year, but not current week
+                            date_str = time.strftime("%B %d", messages[self.cursor_y].sent_date)
+                    else: # not current year
+                        date_str = time.strftime("%B %d, %Y", messages[self.cursor_y].sent_date)
+
+                    thread = threading.Thread(target=self._speak_in_thread, args=(f"From: {sender_name}, Subject: {messages[self.cursor_y].subject}. Message received on {date_str}",))
                     thread.daemon = True
                     thread.start()
 
