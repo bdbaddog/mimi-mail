@@ -48,9 +48,14 @@ def replace_urls(text: str, replace: str, end_with: str = '') -> str:
     return text
 
 
+from bs4 import BeautifulSoup
+
 def getUnreadEmails(service):
     messages = []
-    results = service.users().messages().list(userId='me', labelIds=['UNREAD', 'INBOX']).execute()
+    results = service.users().messages().list(userId='me', labelIds=['INBOX']).execute()
+    if not results.get('messages'):
+        return messages
+
     for r in results.get('messages'):
         message = service.users().messages().get(userId='me', id=r['id']).execute()
         payload = message.get('payload')
@@ -69,15 +74,42 @@ def getUnreadEmails(service):
                 sent_date = value
             if name == 'Subject':
                 subject = value
-        body = payload.get('body')
 
-        mess = Message(sender, sent_date, subject, body)
+        plain_text_body = None
+        html_body = None
+
+        if 'parts' in payload:
+            for part in payload['parts']:
+                if part['mimeType'] == 'text/plain':
+                    plain_text_body = part['body']
+                elif part['mimeType'] == 'text/html':
+                    html_body = part['body']
+        else:
+            if payload.get('mimeType') == 'text/plain':
+                plain_text_body = payload.get('body')
+            elif payload.get('mimeType') == 'text/html':
+                html_body = payload.get('body')
+
+        body_data = None
+        if plain_text_body and 'data' in plain_text_body:
+            body_data = plain_text_body['data']
+        elif html_body and 'data' in html_body:
+            body_data = html_body['data']
+            
+        if body_data:
+            data = body_data.replace('-', '+').replace('_', '/')
+            decoded_data = base64.b64decode(data)
+            if html_body:
+                soup = BeautifulSoup(decoded_data, 'xml')
+                body = {'data': soup.get_text()}
+            else:
+                body = {'data': decoded_data.decode('utf-8')}
+
+
+        mess = Message(sender, sent_date, subject, body if body else {})
 
 
         messages.append(mess)
-
-    for m in messages:
-        print(f"From:{m.sender} Date:{m.sent_date} Subject:{m.subject}")
 
     return messages
 
