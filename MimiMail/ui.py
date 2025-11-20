@@ -2,6 +2,7 @@ import curses
 import pyttsx3
 import textwrap
 import threading
+import time
 from sample import replace_urls
 
 class UI:
@@ -14,7 +15,7 @@ class UI:
         self.engine.setProperty('rate', 130)
         self.speaking = False
         self.show_urls = False
-        self.speak_on_scroll = False
+        self.speak_on_scroll = True
 
         # Start colors in curses
         curses.start_color()
@@ -36,6 +37,16 @@ class UI:
             height, width = self.stdscr.getmaxyx()
             
             max_messages = height - 4
+
+            if k == 0 and self.speak_on_scroll and len(messages) > 0:
+                sender_text = messages[self.cursor_y].sender
+                if '<' in sender_text:
+                    sender_name = sender_text.split('<')[0].strip(' "')
+                else:
+                    sender_name = sender_text
+                thread = threading.Thread(target=self._speak_in_thread, args=(f"From: {sender_name}, Subject: {messages[self.cursor_y].subject}",))
+                thread.daemon = True
+                thread.start()
 
             # Declaration of strings
             title = "MimiMail - Mutt Edition"[:width-1]
@@ -82,14 +93,24 @@ class UI:
                 self.cursor_y = self.cursor_y + 1
                 if self.speak_on_scroll:
                     self.engine.stop()
-                    thread = threading.Thread(target=self._speak_in_thread, args=(f"From: {messages[self.cursor_y].sender}, Subject: {messages[self.cursor_y].subject}",))
+                    sender_text = messages[self.cursor_y].sender
+                    if '<' in sender_text:
+                        sender_name = sender_text.split('<')[0].strip(' "')
+                    else:
+                        sender_name = sender_text
+                    thread = threading.Thread(target=self._speak_in_thread, args=(f"From: {sender_name}, Subject: {messages[self.cursor_y].subject}",))
                     thread.daemon = True
                     thread.start()
             elif k == curses.KEY_UP:
                 self.cursor_y = self.cursor_y - 1
                 if self.speak_on_scroll:
                     self.engine.stop()
-                    thread = threading.Thread(target=self._speak_in_thread, args=(f"From: {messages[self.cursor_y].sender}, Subject: {messages[self.cursor_y].subject}",))
+                    sender_text = messages[self.cursor_y].sender
+                    if '<' in sender_text:
+                        sender_name = sender_text.split('<')[0].strip(' "')
+                    else:
+                        sender_name = sender_text
+                    thread = threading.Thread(target=self._speak_in_thread, args=(f"From: {sender_name}, Subject: {messages[self.cursor_y].subject}",))
                     thread.daemon = True
                     thread.start()
 
@@ -131,7 +152,7 @@ class UI:
             # Declaration of strings
             title = f"Subject: {message.subject}"[:width-1]
             sender = f"From: {message.sender}"[:width-1]
-            sent_date = f"Date: {message.sent_date}"[:width-1]
+            sent_date = f"Date: {time.strftime('%B %d, %Y %I:%M %p', message.sent_date)}"[:width-1]
             rate = self.engine.getProperty('rate')
 
             statusbarstr = f"Press 'q' to return | 's' to speak/stop | 'u' to toggle URLs | +/- to change speed (current: {rate})"
