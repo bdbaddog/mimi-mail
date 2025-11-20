@@ -198,7 +198,7 @@ class UI:
             sent_date = f"Date: {time.strftime('%B %d, %Y %I:%M %p', message.sent_date)}"[:width-1]
             rate = self.engine.getProperty('rate')
 
-            statusbarstr = f"Press 'q' to return | 's' to speak/stop | 'u' to toggle URLs | +/- to change speed (current: {rate})"
+            statusbarstr = f"Press 'q' to return | 's' to speak/stop | 'u' to toggle URLs | +/- to change speed (current: {rate})"[:width-1]
 
             # Render status bar
             self.stdscr.attron(curses.color_pair(3))
