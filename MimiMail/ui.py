@@ -17,16 +17,13 @@ class UI:
         self.show_urls = False
         self.speak_on_scroll = True
 
-        # Threading synchronization
-        self._state_lock = threading.Lock()
-        self._engine_lock = threading.Lock()
-        self._stop_event = threading.Event()
-        self._current_thread = None
+        # Simple stop flag
+        self._stop_flag = False
 
-        # For pause/resume functionality
-        self._speech_words = []
-        self._speech_word_index = 0
-        self._current_message_id = None
+        # For pause/resume in message body
+        self._message_words = []
+        self._message_word_index = 0
+        self._message_speaking = False  # Separate flag for message speech
 
         # Start colors in curses
         curses.start_color()
@@ -35,44 +32,79 @@ class UI:
         curses.init_pair(3, curses.COLOR_BLACK, curses.COLOR_WHITE)
 
     def _stop_speech(self):
-        """Request speech to stop and wait for thread to finish."""
-        # Signal the thread to stop
-        self._stop_event.set()
+        """Request speech to stop."""
+        self._stop_flag = True
+        self.speaking = False
+        try:
+            self.engine.stop()
+        except:
+            pass
 
-        # Stop the engine (thread-safe call)
-        with self._engine_lock:
-            try:
-                self.engine.stop()
-            except:
-                pass
+    def _start_speech_simple(self, text):
+        """Start speech in a new thread with simple stop mechanism."""
+        self._stop_flag = False
+        self.speaking = True
 
-        # Wait for the current thread to finish
-        if self._current_thread is not None and self._current_thread.is_alive():
-            self._current_thread.join(timeout=1.0)
-
-        with self._state_lock:
-            self.speaking = False
-            self._current_thread = None
-
-    def _start_speech(self, text, start_from_index=0, message_id=None):
-        """Start speech in a new thread, stopping any existing speech first."""
-        # Stop any existing speech
-        if self._current_thread is not None and self._current_thread.is_alive():
-            self._stop_speech()
-
-        # Clear stop event for new speech
-        self._stop_event.clear()
-
-        with self._state_lock:
-            self.speaking = True
-
-        # Create and start the thread
-        thread = threading.Thread(
-            target=self._speak_in_thread,
-            args=(text, start_from_index, message_id)
-        )
-        self._current_thread = thread
+        thread = threading.Thread(target=self._speak_simple, args=(text,))
+        thread.daemon = True
         thread.start()
+
+    def _speak_simple(self, text):
+        """Simple speech function - speaks entire text (for list speech only)."""
+        if self._stop_flag:
+            return
+
+        self.engine.say(text)
+        self.engine.runAndWait()
+        # Don't set self.speaking = False here - let the caller handle it
+
+    def _start_message_speech(self, text):
+        """Start message body speech with pause/resume support."""
+        self._stop_flag = False
+        self._message_speaking = True
+
+        # Check if resuming same text
+        words = text.split()
+        if words == self._message_words and self._message_word_index > 0:
+            # Resume from where we left off
+            start_index = self._message_word_index
+        else:
+            # Start fresh
+            self._message_words = words
+            self._message_word_index = 0
+            start_index = 0
+
+        thread = threading.Thread(target=self._speak_message, args=(start_index,))
+        thread.daemon = True
+        thread.start()
+
+    def _speak_message(self, start_index):
+        """Speak message body with chunking for pause/resume."""
+        chunk_size = 20
+
+        self._message_word_index = start_index
+
+        while self._message_word_index < len(self._message_words):
+            if self._stop_flag:
+                break
+
+            end_index = min(self._message_word_index + chunk_size, len(self._message_words))
+            chunk = ' '.join(self._message_words[self._message_word_index:end_index])
+
+            self.engine.say(chunk)
+            self.engine.runAndWait()
+
+            if self._stop_flag:
+                break
+
+            self._message_word_index = end_index
+
+        # Reset if finished completely
+        if not self._stop_flag:
+            self._message_word_index = 0
+            self._message_words = []
+
+        self._message_speaking = False
 
     def draw_menu(self, messages):
         k = 0
@@ -90,7 +122,7 @@ class UI:
             max_messages = height - 4
 
             if k == 0 and self.speak_on_scroll and len(messages) > 0:
-                self._start_speech(messages[self.cursor_y].get_speech_summary())
+                self._start_speech_simple(messages[self.cursor_y].get_speech_summary())
 
             # Declaration of strings
             title = "MimiMail - Mutt Edition"[:width-1]
@@ -137,12 +169,12 @@ class UI:
                 self.cursor_y = self.cursor_y + 1
                 if self.speak_on_scroll:
                     self._stop_speech()
-                    self._start_speech(messages[self.cursor_y].get_speech_summary())
+                    self._start_speech_simple(messages[self.cursor_y].get_speech_summary())
             elif k == curses.KEY_UP:
                 self.cursor_y = self.cursor_y - 1
                 if self.speak_on_scroll:
                     self._stop_speech()
-                    self._start_speech(messages[self.cursor_y].get_speech_summary())
+                    self._start_speech_simple(messages[self.cursor_y].get_speech_summary())
 
             self.cursor_y = max(0, self.cursor_y)
             self.cursor_y = min(len(messages) -1, self.cursor_y)
@@ -159,59 +191,6 @@ class UI:
             elif k == ord('t'):
                 self.speak_on_scroll = not self.speak_on_scroll
 
-
-    def _speak_in_thread(self, text, start_from_index=0, message_id=None):
-        """Speak text starting from a specific word index."""
-        # Set up words for this speech session
-        with self._state_lock:
-            self._speech_words = text.split()
-            self._speech_word_index = start_from_index
-
-        # Speak words in chunks to allow for stopping
-        chunk_size = 20  # Speak 20 words at a time
-
-        while True:
-            # Check stop event
-            if self._stop_event.is_set():
-                break
-
-            with self._state_lock:
-                # Check if we're still on the same message
-                if message_id is not None and self._current_message_id != message_id:
-                    break
-
-                # Check if we've finished all words
-                if self._speech_word_index >= len(self._speech_words):
-                    break
-
-                # Get the next chunk of words
-                end_index = min(self._speech_word_index + chunk_size, len(self._speech_words))
-                chunk = ' '.join(self._speech_words[self._speech_word_index:end_index])
-
-            # Speak the chunk with engine lock
-            with self._engine_lock:
-                if self._stop_event.is_set():
-                    break
-                self.engine.say(chunk)
-                self.engine.runAndWait()
-
-            # Check stop event again after speaking
-            if self._stop_event.is_set():
-                break
-
-            # Update index for next chunk
-            with self._state_lock:
-                if message_id is None or self._current_message_id == message_id:
-                    self._speech_word_index = end_index
-
-        # Clean up when finished
-        with self._state_lock:
-            if not self._stop_event.is_set() and (message_id is None or self._current_message_id == message_id):
-                # Finished speaking normally, reset for next time
-                self._speech_word_index = 0
-                self._speech_words = []
-            self.speaking = False
-            
     def draw_message(self, message):
         k = 0
         scroll_y = 0
@@ -220,11 +199,9 @@ class UI:
         self.stdscr.refresh()
         self.stdscr.timeout(100)
 
-        # Reset speech state for new message
-        with self._state_lock:
-            self._speech_words = []
-            self._speech_word_index = 0
-            self._current_message_id = id(message)
+        # Reset message speech state for new message
+        self._message_words = []
+        self._message_word_index = 0
 
 
         # Loop where k is the last character pressed
@@ -288,34 +265,22 @@ class UI:
             elif k == curses.KEY_UP:
                 scroll_y -= 1
             elif k == ord('s'):
-                with self._state_lock:
-                    is_speaking = self.speaking
-                    word_index = self._speech_word_index
-                    has_words = len(self._speech_words) > 0
-
-                if not is_speaking:
+                if not self._message_speaking:
                     text_to_speak = message.get_body_text()
                     if not self.show_urls:
                         text_to_speak = replace_urls(text_to_speak, "")
 
-                    # Check if we should resume from where we left off
-                    if word_index > 0 and has_words:
-                        # Resume from current position
-                        self._start_speech(text_to_speak, word_index, id(message))
-                    else:
-                        # Start fresh
-                        self._start_speech(text_to_speak, 0, id(message))
+                    self._start_message_speech(text_to_speak)
                 else:
                     self._stop_speech()
+                    self._message_speaking = False
 
             elif k == ord('+'):
                 self.speech_rate += 10
-                with self._engine_lock:
-                    self.engine.setProperty('rate', self.speech_rate)
+                self.engine.setProperty('rate', self.speech_rate)
             elif k == ord('-'):
                 self.speech_rate -= 10
-                with self._engine_lock:
-                    self.engine.setProperty('rate', self.speech_rate)
+                self.engine.setProperty('rate', self.speech_rate)
             elif k == ord('u'):
                 self.show_urls = not self.show_urls
 
@@ -323,7 +288,6 @@ class UI:
             scroll_y = max(0, scroll_y)
 
         self.stdscr.timeout(-1)
-        with self._state_lock:
-            is_speaking = self.speaking
-        if is_speaking:
+        if self._message_speaking:
             self._stop_speech()
+            self._message_speaking = False
