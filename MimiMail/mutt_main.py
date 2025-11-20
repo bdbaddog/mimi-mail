@@ -1,6 +1,7 @@
 import curses
+import pyttsx3
 from ui import UI
-from sample import getUnreadEmails
+from gmail_interface import getUnreadEmails
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -10,6 +11,12 @@ import os
 SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
 
 def main(stdscr):
+    # Initialize TTS engine and speak loading message
+    engine = pyttsx3.init()
+    engine.setProperty('rate', 130)
+    engine.say("Please wait while I load your email")
+    engine.runAndWait()
+
     creds = None
     if os.path.exists('token.json'):
         creds = Credentials.from_authorized_user_file('token.json', SCOPES)
@@ -24,7 +31,7 @@ def main(stdscr):
             token.write(creds.to_json())
 
     service = build('gmail', 'v1', credentials=creds)
-    
+
     unread_messages = getUnreadEmails(service)
 
     ui = UI(stdscr)

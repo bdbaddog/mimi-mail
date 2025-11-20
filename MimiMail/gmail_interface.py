@@ -50,6 +50,36 @@ def replace_urls(text: str, replace: str, end_with: str = '') -> str:
 
 from bs4 import BeautifulSoup
 
+def _find_body_parts(payload):
+    """Recursively search for text/plain and text/html body parts in the email payload."""
+    plain_text_body = None
+    html_body = None
+
+    if 'parts' in payload:
+        for part in payload['parts']:
+            mime_type = part.get('mimeType', '')
+
+            if mime_type == 'text/plain':
+                plain_text_body = part['body']
+            elif mime_type == 'text/html':
+                html_body = part['body']
+            elif mime_type.startswith('multipart/'):
+                # Recursively search nested multipart structures
+                nested_plain, nested_html = _find_body_parts(part)
+                if nested_plain and not plain_text_body:
+                    plain_text_body = nested_plain
+                if nested_html and not html_body:
+                    html_body = nested_html
+    else:
+        # No parts, check the payload directly
+        mime_type = payload.get('mimeType', '')
+        if mime_type == 'text/plain':
+            plain_text_body = payload.get('body')
+        elif mime_type == 'text/html':
+            html_body = payload.get('body')
+
+    return plain_text_body, html_body
+
 def getUnreadEmails(service):
     messages = []
     results = service.users().messages().list(userId='me', labelIds=['INBOX']).execute()
@@ -75,32 +105,19 @@ def getUnreadEmails(service):
             if name == 'Subject':
                 subject = value
 
-        plain_text_body = None
-        html_body = None
-
-        if 'parts' in payload:
-            for part in payload['parts']:
-                if part['mimeType'] == 'text/plain':
-                    plain_text_body = part['body']
-                elif part['mimeType'] == 'text/html':
-                    html_body = part['body']
-        else:
-            if payload.get('mimeType') == 'text/plain':
-                plain_text_body = payload.get('body')
-            elif payload.get('mimeType') == 'text/html':
-                html_body = payload.get('body')
+        plain_text_body, html_body = _find_body_parts(payload)
 
         body_data = None
         if plain_text_body and 'data' in plain_text_body:
             body_data = plain_text_body['data']
         elif html_body and 'data' in html_body:
             body_data = html_body['data']
-            
+
         if body_data:
             data = body_data.replace('-', '+').replace('_', '/')
             decoded_data = base64.b64decode(data)
-            if html_body:
-                soup = BeautifulSoup(decoded_data, 'xml')
+            if html_body and not plain_text_body:
+                soup = BeautifulSoup(decoded_data, 'html.parser')
                 body = {'data': soup.get_text()}
             else:
                 body = {'data': decoded_data.decode('utf-8')}

@@ -4,7 +4,7 @@ import textwrap
 import threading
 import time
 from datetime import datetime, timedelta
-from sample import replace_urls
+from gmail_interface import replace_urls
 
 class UI:
     def __init__(self, stdscr):
@@ -13,16 +13,35 @@ class UI:
         self.cursor_y = 0
         self.list_scroll = 0
         self.engine = pyttsx3.init()
-        self.engine.setProperty('rate', 130)
+        self.speech_rate = 130
+        self.engine.setProperty('rate', self.speech_rate)
         self.speaking = False
         self.show_urls = False
         self.speak_on_scroll = True
+        self._stop_requested = False
+
+        # For pause/resume functionality
+        self._speech_words = []
+        self._speech_word_index = 0
+        self._current_message_id = None
 
         # Start colors in curses
         curses.start_color()
         curses.init_pair(1, curses.COLOR_CYAN, curses.COLOR_BLACK)
         curses.init_pair(2, curses.COLOR_RED, curses.COLOR_BLACK)
         curses.init_pair(3, curses.COLOR_BLACK, curses.COLOR_WHITE)
+
+    def _stop_speech(self):
+        """Request speech to stop."""
+        self._stop_requested = True
+        self.speaking = False
+        # Reinitialize engine to force stop - this is the most reliable way
+        try:
+            self.engine.stop()
+        except:
+            pass
+        self.engine = pyttsx3.init()
+        self.engine.setProperty('rate', self.speech_rate)
 
     def draw_menu(self, messages):
         k = 0
@@ -167,14 +186,48 @@ class UI:
             
             if k == 10 or k == curses.KEY_ENTER:
                 if len(messages) > 0:
+                    self._stop_speech()
                     self.draw_message(messages[self.cursor_y])
             elif k == ord('t'):
                 self.speak_on_scroll = not self.speak_on_scroll
 
 
-    def _speak_in_thread(self, text):
-        self.engine.say(text)
-        self.engine.runAndWait()
+    def _speak_in_thread(self, text, start_from_index=0, message_id=None):
+        """Speak text starting from a specific word index."""
+        self._stop_requested = False
+
+        # Always set the words from text
+        self._speech_words = text.split()
+
+        self._speech_word_index = start_from_index
+
+        # Speak words in chunks to allow for stopping
+        chunk_size = 20  # Speak 20 words at a time
+
+        while self._speech_word_index < len(self._speech_words) and not self._stop_requested:
+            # Check if we're still on the same message
+            if message_id is not None and self._current_message_id != message_id:
+                break
+
+            # Get the next chunk of words
+            end_index = min(self._speech_word_index + chunk_size, len(self._speech_words))
+            chunk = ' '.join(self._speech_words[self._speech_word_index:end_index])
+
+            self.engine.say(chunk)
+            self.engine.runAndWait()
+
+            if self._stop_requested:
+                break
+
+            # Only update index if still on same message
+            if message_id is None or self._current_message_id == message_id:
+                self._speech_word_index = end_index
+
+        if not self._stop_requested and (message_id is None or self._current_message_id == message_id):
+            # Finished speaking, reset for next time
+            self._speech_word_index = 0
+            self._speech_words = []
+
         self.speaking = False
             
     def draw_message(self, message):
@@ -184,6 +237,12 @@ class UI:
         self.stdscr.clear()
         self.stdscr.refresh()
         self.stdscr.timeout(100)
+
+        # Reset speech state for new message
+        self._speech_words = []
+        self._speech_word_index = 0
+        self._stop_requested = False
+        self._current_message_id = id(message)
 
 
         # Loop where k is the last character pressed
@@ -196,9 +255,8 @@ class UI:
             title = f"Subject: {message.subject}"[:width-1]
             sender = f"From: {message.sender}"[:width-1]
             sent_date = f"Date: {time.strftime('%B %d, %Y %I:%M %p', message.sent_date)}"[:width-1]
-            rate = self.engine.getProperty('rate')
 
-            statusbarstr = f"Press 'q' to return | 's' to speak/stop | 'u' to toggle URLs | +/- to change speed (current: {rate})"[:width-1]
+            statusbarstr = f"Press 'q' to return | 's' to speak/stop | 'u' to toggle URLs | +/- to change speed (current: {self.speech_rate})"[:width-1]
 
             # Render status bar
             self.stdscr.attron(curses.color_pair(3))
@@ -253,19 +311,26 @@ class UI:
                     text_to_speak = message.body.get('data', '')
                     if not self.show_urls:
                         text_to_speak = replace_urls(text_to_speak, "")
-                    thread = threading.Thread(target=self._speak_in_thread, args=(text_to_speak,))
+
+                    # Check if we should resume from where we left off
+                    if self._speech_word_index > 0 and self._speech_words:
+                        # Resume from current position
+                        thread = threading.Thread(target=self._speak_in_thread, args=(text_to_speak, self._speech_word_index, id(message)))
+                    else:
+                        # Start fresh
+                        self._speech_word_index = 0
+                        thread = threading.Thread(target=self._speak_in_thread, args=(text_to_speak, 0, id(message)))
                     thread.daemon = True
                     thread.start()
                 else:
-                    self.speaking = False
-                    self.engine.stop()
+                    self._stop_speech()
 
             elif k == ord('+'):
-                rate = self.engine.getProperty('rate')
-                self.engine.setProperty('rate', rate + 10)
+                self.speech_rate += 10
+                self.engine.setProperty('rate', self.speech_rate)
             elif k == ord('-'):
-                rate = self.engine.getProperty('rate')
-                self.engine.setProperty('rate', rate - 10)
+                self.speech_rate -= 10
+                self.engine.setProperty('rate', self.speech_rate)
             elif k == ord('u'):
                 self.show_urls = not self.show_urls
 
@@ -273,5 +338,5 @@ class UI:
             scroll_y = max(0, scroll_y)
 
         self.stdscr.timeout(-1)
-        self.speaking = False
-        self.engine.stop()
+        if self.speaking:
+            self._stop_speech()
