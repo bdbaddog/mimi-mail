@@ -1,7 +1,6 @@
 google-api-python-client
 google-auth-httplib2
 google-auth-oauthlib
-pyttsx3
 beautifulsoup4
 windows-curses; sys_platform == 'win32'
-
+pywin32

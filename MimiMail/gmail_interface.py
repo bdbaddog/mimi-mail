@@ -3,27 +3,20 @@ From:
 https://developers.google.com/gmail/api/quickstart/python
 
 """
-import os.path
 import base64
 import codecs
 import re
+import time
+import threading
 
 import pyttsx3
-
-from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
-from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError
+from bs4 import BeautifulSoup
 
 from Message import Message
 
+
 # If modifying these scopes, delete the file token.json.
 SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
-
-engine = pyttsx3.init()
-# This is the speaking rate defaults to 200 words per minute
-engine.setProperty('rate', 130)
 
 URL_PATTERN = r'[A-Za-z0-9]+://[A-Za-z0-9%-_]+(/[A-Za-z0-9%-_])*(#|\\?)[A-Za-z0-9%-_&=]*'
 
@@ -47,8 +40,6 @@ def replace_urls(text: str, replace: str, end_with: str = '') -> str:
         text = text[:start] + replace + text[end:]
     return text
 
-
-from bs4 import BeautifulSoup
 
 def _find_body_parts(payload):
     """Recursively search for text/plain and text/html body parts in the email payload."""
@@ -80,53 +71,125 @@ def _find_body_parts(payload):
 
     return plain_text_body, html_body
 
-def getUnreadEmails(service):
+def getUnreadEmails(service, speaker):
+
     messages = []
+
     results = service.users().messages().list(userId='me', labelIds=['INBOX']).execute()
-    if not results.get('messages'):
+
+    api_messages = results.get('messages')
+
+    
+
+    if not api_messages:
+
         return messages
 
-    for r in results.get('messages'):
+
+
+    total_messages = len(api_messages)
+
+    start_time = time.time()
+
+    last_update_time = start_time
+
+
+
+    for i, r in enumerate(api_messages):
+
         message = service.users().messages().get(userId='me', id=r['id']).execute()
+
         payload = message.get('payload')
+
         headers = payload.get('headers')
 
+
+
         sender = None
+
         sent_date = None
+
         subject = None
+
         body = None
+
         for x in headers:
+
             name = x['name']
+
             value = x['value']
+
             if name == 'From':
+
                 sender = value
+
             if name == 'Date':
+
                 sent_date = value
+
             if name == 'Subject':
+
                 subject = value
+
+
 
         plain_text_body, html_body = _find_body_parts(payload)
 
+
+
         body_data = None
+
         if plain_text_body and 'data' in plain_text_body:
+
             body_data = plain_text_body['data']
+
         elif html_body and 'data' in html_body:
+
             body_data = html_body['data']
 
+
+
         if body_data:
+
             data = body_data.replace('-', '+').replace('_', '/')
+
             decoded_data = base64.b64decode(data)
+
             if html_body and not plain_text_body:
+
                 soup = BeautifulSoup(decoded_data, 'html.parser')
+
                 body = {'data': soup.get_text()}
+
             else:
+
                 body = {'data': decoded_data.decode('utf-8')}
+
+
+
 
 
         mess = Message(sender, sent_date, subject, body if body else {})
 
-
         messages.append(mess)
+
+        
+
+        current_time = time.time()
+
+        elapsed_time = current_time - start_time
+
+        
+
+        if elapsed_time > 3 and (current_time - last_update_time > 4):
+
+            progress_text = f"Loaded {i + 1} of {total_messages} emails."
+
+            speaker.say(progress_text, interrupt=False)
+
+            last_update_time = current_time
+
+
 
     return messages
 
@@ -157,57 +220,7 @@ def getEmail(service):
             print("%-4s [%-12s]: %s " % (p['partId'], p['mimeType'], body_text))
             if p['mimeType'] == 'text/plain':
                 body_text = replace_urls(body_text, "LINK")
-                engine.say(body_text)
-                engine.runAndWait()
+                # This will fail now as there is no global engine
+                # engine.say(body_text)
+                # engine.runAndWait()
         break
-
-
-def main():
-    """Shows basic usage of the Gmail API.
-    Lists the user's Gmail labels.
-    """
-    creds = None
-    # The file token.json stores the user's access and refresh tokens, and is
-    # created automatically when the authorization flow completes for the first
-    # time.
-    if os.path.exists('token.json'):
-        creds = Credentials.from_authorized_user_file('token.json', SCOPES)
-    # If there are no (valid) credentials available, let the user log in.
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
-            flow = InstalledAppFlow.from_client_secrets_file(
-                'credentials.json', SCOPES)
-            creds = flow.run_local_server(port=0)
-        # Save the credentials for the next run
-        with open('token.json', 'w') as token:
-            token.write(creds.to_json())
-
-    try:
-        # Call the Gmail API
-        service = build('gmail', 'v1', credentials=creds)
-        # results = service.users().labels().list(userId='me').execute()
-        # labels = results.get('labels', [])
-        #
-        # if not labels:
-        #     print('No labels found.')
-        #     return
-        # print('Labels:')
-        # for label in labels:
-        #     print(label['name'])
-        #     engine.say(label['name'])
-        # engine.runAndWait()
-
-        # getEmail(service)
-        unread_messages = getUnreadEmails(service)
-        for m in unread_messages:
-            print(m)
-
-    except HttpError as error:
-        # TODO(developer) - Handle errors from gmail API.
-        print(f'An error occurred: {error}')
-
-
-if __name__ == '__main__':
-    main()

@@ -55,7 +55,12 @@ class Message:
 
     def get_speech_summary(self):
         """Get the text to speak when this message is selected in the list."""
-        return f"From: {self.get_sender_name()}, Subject: {self.subject}. Message received on {self.get_date_for_speech()}"
+        date_spoken = self.get_date_for_speech()
+        if date_spoken == "Today":
+            date_phrase = "received today"
+        else:
+            date_phrase = f"received on {date_spoken}"
+        return f"From: {self.get_sender_name()}, Subject: {self.subject}. Message {date_phrase}"
 
     def get_body_text(self):
         """Get the body text of the message."""
