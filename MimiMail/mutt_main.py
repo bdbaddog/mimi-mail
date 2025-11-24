@@ -15,7 +15,7 @@ def main(stdscr):
         speaker.shutdown()
         return
 
-    unread_messages = getUnreadEmails(service, speaker)
+    unread_messages = getUnreadEmails(service, speaker, stdscr)
 
     ui = UI(stdscr, speaker)
     ui.draw_menu(unread_messages)

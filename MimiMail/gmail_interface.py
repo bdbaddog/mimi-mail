@@ -8,8 +8,8 @@ import codecs
 import re
 import time
 import threading
+import curses # New import
 
-import pyttsx3
 from bs4 import BeautifulSoup
 
 from Message import Message
@@ -71,125 +71,74 @@ def _find_body_parts(payload):
 
     return plain_text_body, html_body
 
-def getUnreadEmails(service, speaker):
-
+def getUnreadEmails(service, speaker, stdscr): # stdscr added to signature
     messages = []
-
     results = service.users().messages().list(userId='me', labelIds=['INBOX']).execute()
-
     api_messages = results.get('messages')
-
     
+    # Display initial loading message
+    if stdscr:
+        stdscr.clear()
+        stdscr.addstr(0, 0, "Fetching emails, please wait...")
+        stdscr.refresh()
 
     if not api_messages:
-
         return messages
 
-
-
     total_messages = len(api_messages)
-
     start_time = time.time()
-
     last_update_time = start_time
 
-
-
     for i, r in enumerate(api_messages):
-
         message = service.users().messages().get(userId='me', id=r['id']).execute()
-
         payload = message.get('payload')
-
         headers = payload.get('headers')
 
-
-
         sender = None
-
         sent_date = None
-
         subject = None
-
         body = None
-
         for x in headers:
-
             name = x['name']
-
             value = x['value']
-
             if name == 'From':
-
                 sender = value
-
             if name == 'Date':
-
                 sent_date = value
-
             if name == 'Subject':
-
                 subject = value
-
-
 
         plain_text_body, html_body = _find_body_parts(payload)
 
-
-
         body_data = None
-
         if plain_text_body and 'data' in plain_text_body:
-
             body_data = plain_text_body['data']
-
         elif html_body and 'data' in html_body:
-
             body_data = html_body['data']
 
-
-
         if body_data:
-
             data = body_data.replace('-', '+').replace('_', '/')
-
             decoded_data = base64.b64decode(data)
-
             if html_body and not plain_text_body:
-
                 soup = BeautifulSoup(decoded_data, 'html.parser')
-
                 body = {'data': soup.get_text()}
-
             else:
-
                 body = {'data': decoded_data.decode('utf-8')}
 
 
-
-
-
         mess = Message(sender, sent_date, subject, body if body else {})
-
         messages.append(mess)
-
         
-
         current_time = time.time()
-
         elapsed_time = current_time - start_time
-
         
-
         if elapsed_time > 3 and (current_time - last_update_time > 4):
-
             progress_text = f"Loaded {i + 1} of {total_messages} emails."
-
+            if stdscr:
+                stdscr.addstr(1, 0, progress_text + " " * (stdscr.getmaxyx()[1] - len(progress_text) -1)) # Clear rest of line
+                stdscr.refresh()
             speaker.say(progress_text, interrupt=False)
-
             last_update_time = current_time
-
-
 
     return messages
 

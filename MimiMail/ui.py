@@ -1,5 +1,6 @@
 import curses
 import textwrap
+import time
 from gmail_interface import replace_urls
 
 class UI:
@@ -22,32 +23,32 @@ class UI:
         k = 0
         self.stdscr.clear()
         self.stdscr.refresh()
+        self.stdscr.nodelay(True) # Make getch non-blocking
+
+        last_scroll_time = 0
+        speak_scheduled_for_cursor = -1
 
         # Speak the first message before starting the loop
         if self.speak_on_scroll and messages:
             self.speaker.say(messages[self.cursor_y].get_speech_summary(), interrupt=True)
 
         while (k != ord('q')):
+            # --- Drawing Logic ---
             self.stdscr.clear()
             height, width = self.stdscr.getmaxyx()
-            
             max_messages = height - 4
-
             title = "MimiMail - Mutt Edition"[:width-1]
             statusbarstr = f"Press 'q' to exit | 't' to toggle speak on scroll ({'On' if self.speak_on_scroll else 'Off'})"
             start_x_title = int((width // 2) - (len(title) // 2) - len(title) % 2)
-
             self.stdscr.attron(curses.color_pair(3))
             self.stdscr.addstr(height-1, 0, statusbarstr)
             self.stdscr.addstr(height-1, len(statusbarstr), " " * (width - len(statusbarstr) - 1))
             self.stdscr.attroff(curses.color_pair(3))
-
             self.stdscr.attron(curses.color_pair(1))
             self.stdscr.attron(curses.A_BOLD)
             self.stdscr.addstr(0, start_x_title, title)
             self.stdscr.attroff(curses.color_pair(1))
             self.stdscr.attroff(curses.A_BOLD)
-
             for i in range(self.list_scroll, self.list_scroll + max_messages):
                 if i < len(messages):
                     message = messages[i]
@@ -57,22 +58,35 @@ class UI:
                     self.stdscr.addstr(i - self.list_scroll + 2, 0, display_string)
                     if i == self.cursor_y:
                         self.stdscr.attroff(curses.color_pair(3))
-
             self.stdscr.refresh()
+
+            # --- Input and Debounce Logic ---
             k = self.stdscr.getch()
 
-            if not messages:
+            # Debounce check
+            if speak_scheduled_for_cursor != -1 and (time.time() - last_scroll_time > 0.3):
+                self.speaker.say(messages[speak_scheduled_for_cursor].get_speech_summary(), interrupt=True)
+                speak_scheduled_for_cursor = -1
+
+            if not messages or k == -1:
+                time.sleep(0.05)
                 continue
 
+            # --- Key Handling ---
+            scrolled = False
             if k == curses.KEY_DOWN:
                 self.cursor_y = min(len(messages) - 1, self.cursor_y + 1)
-                if self.speak_on_scroll:
-                    self.speaker.say(messages[self.cursor_y].get_speech_summary(), interrupt=True)
+                scrolled = True
             elif k == curses.KEY_UP:
                 self.cursor_y = max(0, self.cursor_y - 1)
-                if self.speak_on_scroll:
-                    self.speaker.say(messages[self.cursor_y].get_speech_summary(), interrupt=True)
+                scrolled = True
 
+            if scrolled and self.speak_on_scroll:
+                self.speaker.stop()
+                last_scroll_time = time.time()
+                speak_scheduled_for_cursor = self.cursor_y
+            
+            # Adjust scroll view
             if self.cursor_y < self.list_scroll:
                 self.list_scroll = self.cursor_y
             if self.cursor_y >= self.list_scroll + max_messages:
@@ -82,12 +96,16 @@ class UI:
                 self.speaker.stop()
                 self.draw_message(messages[self.cursor_y])
                 self.stdscr.clear()
+                # After returning, re-enable non-blocking mode for this loop
+                self.stdscr.nodelay(True)
+                # Respeak current selection
                 if self.speak_on_scroll:
                      self.speaker.say(messages[self.cursor_y].get_speech_summary(), interrupt=True)
 
             elif k == ord('t'):
                 self.speak_on_scroll = not self.speak_on_scroll
         
+        self.stdscr.nodelay(False)
         self.speaker.stop()
 
     def draw_message(self, message):
@@ -105,7 +123,8 @@ class UI:
             sender = f"From: {message.sender}"[:width-1]
             sent_date = f"Date: {message.get_date_full()}"[:width-1]
 
-            statusbarstr = f"Press 'q' to return | 's' to speak/stop | 'u' to toggle URLs | +/- to change speed (current: {self.speech_rate})"[:width-1]
+            speaking_status = "Speaking" if self.speaker.is_speaking() else "Stopped"
+            statusbarstr = f"Press 'q' to return | 's' to speak/stop ({speaking_status}) | 'u' to toggle URLs | +/- to change speed (current: {self.speech_rate})"[:width-1]
 
             self.stdscr.attron(curses.color_pair(3))
             self.stdscr.addstr(height-1, 0, statusbarstr)
