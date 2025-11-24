@@ -11,9 +11,6 @@ class UI:
         self.speech_rate = 130
         self.show_urls = False
         self.speak_on_scroll = True
-        
-        # We still need a flag to toggle speech for the 's' key in the message view
-        self._is_speaking_body = False
 
         # Start colors in curses
         curses.start_color()
@@ -99,7 +96,6 @@ class UI:
         self.stdscr.clear()
         self.stdscr.refresh()
         self.stdscr.timeout(100)
-        self._is_speaking_body = False
 
         while (k != ord('q')):
             self.stdscr.clear()
@@ -146,15 +142,13 @@ class UI:
             elif k == curses.KEY_UP:
                 scroll_y -= 1
             elif k == ord('s'):
-                if not self._is_speaking_body:
+                if not self.speaker.is_speaking():
                     text_to_speak = message.get_body_text()
                     if not self.show_urls:
                         text_to_speak = replace_urls(text_to_speak, "")
                     self.speaker.say(text_to_speak, interrupt=True)
-                    self._is_speaking_body = True
                 else:
                     self.speaker.stop()
-                    self._is_speaking_body = False
 
             elif k == ord('+'):
                 self.speech_rate = min(300, self.speech_rate + 10)

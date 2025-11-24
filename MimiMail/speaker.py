@@ -15,13 +15,11 @@ class Speaker:
         self.thread = threading.Thread(target=self._worker)
         self.thread.daemon = True
         self.rate = 130 # Store rate in WPM
+        self._is_speaking_flag = threading.Event()
         self.thread.start()
 
     def _wpm_to_sapi_rate(self, wpm):
         """Converts words-per-minute (approx) to SAPI's -10 to 10 scale."""
-        # This is a rough linear conversion.
-        # Default pyttsx3 rate is 200, default SAPI seems to be around 150-180 WPM.
-        # Let's map 150 WPM to SAPI rate 0.
         return max(-10, min(10, int((wpm - 150) / 10)))
 
     def _worker(self):
@@ -31,17 +29,33 @@ class Speaker:
             voice = win32com.client.Dispatch("SAPI.SpVoice")
             voice.Rate = self._wpm_to_sapi_rate(self.rate)
             while True:
-                interrupt, text = self.queue.get()
-                if text is None: # Shutdown signal
-                    break
+                try:
+                    interrupt, text = self.queue.get(timeout=0.1)
+                    if text is None: # Shutdown signal
+                        break
 
-                # SVSFPurgeBeforeSpeak = 1, SVSFDefault/SVSFlagsAsync = 0
-                # We use flags=1 to interrupt, which purges pending sounds.
-                flags = 1 if interrupt else 0
-                voice.Speak(text, flags)
-                self.queue.task_done()
+                    flags = 1 if interrupt else 0
+                    voice.Speak(text, flags)
+                    self.queue.task_done()
+                
+                except queue.Empty:
+                    # This is the main path when no new text is queued.
+                    # We use the timeout to periodically check the speaking status.
+                    pass
+
+                # Check SAPI status to update our flag
+                # SRSEDone = 1, SRSEIsSpeaking = 2
+                if voice.Status.RunningState == 2:
+                    self._is_speaking_flag.set()
+                else:
+                    self._is_speaking_flag.clear()
+
         finally:
             pythoncom.CoUninitialize()
+
+    def is_speaking(self):
+        """Returns True if the TTS engine is currently speaking."""
+        return self._is_speaking_flag.is_set()
 
     def say(self, text, interrupt=False):
         """
