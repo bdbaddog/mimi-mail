@@ -48,25 +48,23 @@ class Speaker:
         Queues text to be spoken.
         Args:
             text (str): The text to be spoken.
-            interrupt (bool): If True, stops the current speech before queuing.
+            interrupt (bool): If True, clears any pending speech before this item
+                              is queued, and the speech engine is told to purge.
         """
-        # For SAPI, the interrupt is handled by the Speak flag.
-        # If we want an immediate stop without saying something new, use stop().
         if interrupt:
-            self.stop()
+            # Clear any other pending items from our queue
+            with self.queue.mutex:
+                self.queue.queue.clear()
         
         self.queue.put((interrupt, text))
 
     def stop(self):
         """
-        Clears the queue and stops the current utterance.
+        Stops the current utterance and clears the speech queue.
         """
-        # Clear any pending items from our queue
-        with self.queue.mutex:
-            self.queue.queue.clear()
-        
-        # Send an empty string with the purge flag to interrupt current speech
-        self.queue.put((True, ''))
+        # To stop, we tell the engine to speak an empty string and purge
+        # anything that was spoken before it.
+        self.say('', interrupt=True)
 
     def set_rate(self, wpm_rate):
         """Sets the speaking rate in words-per-minute (approx)."""
