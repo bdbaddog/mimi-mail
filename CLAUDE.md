@@ -11,65 +11,59 @@ MimiMail is a keyboard-driven, accessible terminal email client that connects to
 ### Running the Application
 
 ```bash
-# Activate virtual environment and run
-source /Users/bdbaddog/.virtualenvs/mimi/bin/activate
-python MimiMail/mutt_main.py
-
-# Or directly with the venv python
-/Users/bdbaddog/.virtualenvs/mimi/bin/python MimiMail/mutt_main.py
-```
-
-### Install Dependencies
-
-```bash
-pip install -r requirements.txt
+cd MimiMail && python3 mutt_main.py
 ```
 
 ### Testing Individual Modules
 
 ```bash
 # Test Gmail API connection
-python MimiMail/sample.py
+python3 MimiMail/gmail_interface.py
 
 # Test Gmail OAuth quickstart
-python MimiMail/QuickStart.py
+python3 MimiMail/QuickStart.py
 ```
 
 ## Architecture
 
 ### Core Files
 
-- **`MimiMail/mutt_main.py`** - Entry point. Handles OAuth authentication with Gmail API and initializes the UI with fetched messages.
+- **`MimiMail/mutt_main.py`** - Entry point. Handles OAuth authentication with Gmail API, initializes SpeechController, and starts the UI.
 
-- **`MimiMail/ui.py`** - Curses-based terminal UI implementation. Contains the `UI` class with:
+- **`MimiMail/ui.py`** - Curses-based terminal UI. Contains the `UI` class with:
   - `draw_menu(messages)` - Email list view with navigation and speak-on-scroll
-  - `draw_message(message)` - Individual message view with scrolling and speech controls
-  - Threading for non-blocking TTS playback
+  - `draw_message(message)` - Individual message view with scrolling and speech controls ('s' to speak/stop, '+'/'-' for rate, 'u' to toggle URLs)
 
-- **`MimiMail/sample.py`** - Gmail API integration and utilities:
-  - `getUnreadEmails(service)` - Fetches inbox emails
+- **`MimiMail/speech_controller.py`** - Thread-safe TTS controller using command queue pattern:
+  - Single worker thread owns the pyttsx3 engine
+  - UI communicates via `speak()`, `stop()`, `set_rate()`, `is_speaking()`
+  - Supports resumable speech (pause/resume from same position in message body)
+
+- **`MimiMail/gmail_interface.py`** - Gmail API integration:
+  - `getUnreadEmails(service)` - Fetches inbox emails with recursive multipart parsing
   - `replace_urls()` - Regex-based URL replacement for accessibility
-  - OAuth credential management
+  - `_find_body_parts()` - Handles nested multipart email structures
 
-- **`MimiMail/Message.py`** - Message dataclass with smart date formatting in `__repr__()`
+- **`MimiMail/Message.py`** - Message dataclass with:
+  - Smart date formatting: `get_date_for_display()`, `get_date_for_speech()`, `get_date_full()`
+  - `get_speech_summary()` - Text spoken when message selected in list
+  - `get_body_text()` - Extract body from payload
 
 ### Data Flow
 
 ```
-mutt_main.py → OAuth2 authentication → sample.getUnreadEmails() → UI.draw_menu()
-                                                                       ↓
-                                                              UI.draw_message()
+mutt_main.py → OAuth2 auth → gmail_interface.getUnreadEmails() → UI.draw_menu()
+     ↓                                                                ↓
+SpeechController ←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←← UI.draw_message()
 ```
 
 ## Key Patterns
 
-### Threading for TTS
-All text-to-speech operations run in daemon threads to prevent UI blocking:
-```python
-thread = threading.Thread(target=self._speak_in_thread, args=(text,))
-thread.daemon = True
-thread.start()
-```
+### Command Queue for TTS
+SpeechController uses a command queue pattern to handle pyttsx3 thread safety:
+- Worker thread processes SPEAK, STOP, SET_RATE, RESET_RESUMABLE, SHUTDOWN commands
+- UI thread never directly touches the pyttsx3 engine
+- Resumable speech tracks word index for pause/resume within message body
 
 ### Gmail API Authentication
 Uses OAuth2 refresh token flow:
@@ -79,6 +73,7 @@ Uses OAuth2 refresh token flow:
 
 ### Email Body Handling
 Supports both plain text and HTML emails:
+- Recursively searches nested multipart structures
 - HTML parsed with BeautifulSoup to extract text
 - Base64 decoding for Gmail API payload
 
@@ -99,12 +94,11 @@ Supports both plain text and HTML emails:
 
 1. Create Google Cloud Project and enable Gmail API
 2. Create OAuth 2.0 desktop application credentials
-3. Place `credentials.json` in project root
+3. Place `credentials.json` in MimiMail directory
 4. First run opens browser for OAuth approval
 5. `token.json` is auto-generated with refresh token
 
 ## Known Issues
 
-- Date formatting logic is duplicated in both `ui.py` and `Message.py` (candidate for refactoring)
+- pyttsx3 threading on macOS: `runAndWait()` may not block properly in background threads
 - No formal testing framework configured
-- No linting configuration

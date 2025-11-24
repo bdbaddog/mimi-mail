@@ -1,6 +1,10 @@
 import curses
 import textwrap
+import sys
 from gmail_interface import replace_urls
+
+def debug(msg):
+    print(f"[UI] {msg}", file=sys.stderr, flush=True)
 
 class UI:
     def __init__(self, stdscr, speech):
@@ -179,13 +183,17 @@ class UI:
             elif k == curses.KEY_UP:
                 scroll_y -= 1
             elif k == ord('s'):
-                if not self.speech.is_speaking():
+                is_speaking = self.speech.is_speaking()
+                debug(f"'s' pressed, is_speaking={is_speaking}")
+                if not is_speaking:
                     text_to_speak = message.get_body_text()
                     if not self.show_urls:
                         text_to_speak = replace_urls(text_to_speak, "")
 
+                    debug(f"Starting speech, text length={len(text_to_speak)}")
                     self.speech.speak(text_to_speak, resumable=True)
                 else:
+                    debug("Stopping speech")
                     self.speech.stop()
 
             elif k == ord('+'):

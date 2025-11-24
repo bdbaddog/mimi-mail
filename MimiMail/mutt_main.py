@@ -7,7 +7,6 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 import os
-import time
 
 SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
 
@@ -15,10 +14,6 @@ def main(stdscr):
     # Initialize speech controller and speak loading message
     speech = SpeechController(rate=130)
     speech.speak("Please wait while I load your email")
-
-    # Wait for the speech to complete before continuing
-    while speech.is_speaking():
-        time.sleep(0.1)
 
     creds = None
     if os.path.exists('token.json'):
